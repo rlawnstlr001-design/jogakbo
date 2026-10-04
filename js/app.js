@@ -1,12 +1,13 @@
 // 조각보 — 짧게 적고, 매일 아침 다시 만난다
-import * as db from './db.js?v=202610041028';
+import * as db from './db.js?v=202610041032';
 import {
   parseTags, tagColor, memoColor, dayKey, todayKey, prettyDay, timeOf, matches, tagTree, allTagPaths,
   newId, esc, renderBody, PALETTE, topTag,
-} from './memo.js?v=202610041028';
-import { buildReview, DEFAULT_RULES, MIN_POOL } from './review.js?v=202610041028';
-import { dayPatches, patchStyle, monthCells, monthImage } from './patch.js?v=202610041028';
-import { track } from './track.js?v=202610041028';
+} from './memo.js?v=202610041032';
+import { buildReview, DEFAULT_RULES, MIN_POOL } from './review.js?v=202610041032';
+import { dayPatches, patchStyle, monthCells, monthImage } from './patch.js?v=202610041032';
+import { track } from './track.js?v=202610041032';
+import { isApp, haptic, shareFile, scheduleReview, initNative } from './native.js?v=202610041032';
 
 const $ = (s, el = document) => el.querySelector(s);
 const view = $('#view');
@@ -17,7 +18,7 @@ const TRASH_DAYS = 30;
 const S = {
   memos: [],
   reviews: [],
-  settings: { rules: DEFAULT_RULES, reviewTime: '08:00', colors: {} },
+  settings: { rules: DEFAULT_RULES, reviewTime: '08:00', notify: null, colors: {} }, // notify: null=아직 안 물어봄
   filter: { include: [], exclude: [], q: '', day: null },
   quoteId: null,
   editId: null,
@@ -40,13 +41,15 @@ function toast(msg, { action, onAction, ms = 2200 } = {}) {
   toastTimer = setTimeout(() => t.classList.remove('on'), action ? 5000 : ms);
 }
 
+let closeSheet = null;
 function openSheet(html, { onClose, cls = '' } = {}) {
   const root = $('#sheet-root');
   root.innerHTML = `<div class="sheet-back" data-close></div>
     <section class="sheet ${cls}" role="dialog" aria-modal="true">
       <span class="sheet-grip" aria-hidden="true"></span>${html}</section>`;
   root.classList.add('on');
-  const close = () => { root.classList.remove('on'); root.innerHTML = ''; onClose?.(); };
+  const close = () => { root.classList.remove('on'); root.innerHTML = ''; closeSheet = null; onClose?.(); };
+  closeSheet = close;
   // 시트 내용을 다시 그려도 닫기 버튼이 살아 있게 위임으로 건다
   root.querySelector('.sheet-back').addEventListener('click', close);
   root.querySelector('.sheet').addEventListener('click', (e) => { if (e.target.closest('[data-close]')) close(); });
@@ -350,6 +353,7 @@ async function submit() {
     toast('고쳤어요');
   } else {
     await addMemo(text);
+    haptic();
     if (S.quoteId) toast('이어 꿰맸어요');
   }
   input.value = '';
@@ -396,11 +400,23 @@ async function renderToday() {
       </div>
     </div>`;
   }).join('');
-  view.innerHTML = `<section class="today">
+  const ask = isApp && S.settings.notify == null
+    ? `<div class="ask"><p>매일 아침 <b>${S.settings.reviewTime}</b>에 세 장이 꺼내졌다고 알려 드릴까요?</p>
+        <div class="ask-row"><button class="btn btn-main" id="ask-yes">알림 받기</button><button class="btn" id="ask-no">괜찮아요</button></div></div>`
+    : '';
+  view.innerHTML = `<section class="today">${ask}
     <h2 class="today-title">오늘의 조각 <small>${new Date().getMonth() + 1}월 ${new Date().getDate()}일</small></h2>
     <div class="rail" id="rail">${cards}</div>
     <p class="today-foot">내일 아침 새 세 장이 꺼내집니다. 다시 읽고 떠오른 것이 있으면 이어 꿰매 보세요.</p>
   </section>`;
+  $('#ask-yes')?.addEventListener('click', async () => {
+    const ok = await scheduleReview(S.settings.reviewTime);
+    S.settings.notify = ok;
+    await saveSettings();
+    toast(ok ? `매일 ${S.settings.reviewTime}에 알려 드릴게요` : '알림 권한이 없어 켜지 못했어요. 설정에서 다시 켤 수 있어요');
+    $('.ask')?.remove();
+  });
+  $('#ask-no')?.addEventListener('click', async () => { S.settings.notify = false; await saveSettings(); $('.ask')?.remove(); });
   const rail = $('#rail');
   rail.addEventListener('click', (e) => {
     const q = e.target.closest('[data-quote]');
@@ -456,6 +472,7 @@ function renderBo() {
   });
   $('#bo-save').onclick = async () => {
     const blob = await monthImage(y, m, patches, { total: monthMemos.length, topTagName: topT });
+    if (isApp) { shareFile(blob, `jogakbo-${prefix}.png`, `${m + 1}월의 조각보`); return; }
     const file = new File([blob], `jogakbo-${prefix}.png`, { type: 'image/png' });
     if (navigator.canShare?.({ files: [file] })) {
       try { await navigator.share({ files: [file], title: `${m + 1}월의 조각보` }); return; } catch (err) { if (err?.name === 'AbortError') return; }
@@ -527,6 +544,7 @@ $('#btn-tags').addEventListener('click', showTags);
 
 // ---------- 설정 ----------
 function download(name, text, type) {
+  if (isApp) { shareFile(new Blob([text], { type }), name, '조각보 내보내기'); return; }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([text], { type }));
   a.download = name;
@@ -583,6 +601,12 @@ function showSettings() {
     <h3 class="set-h">오늘의 조각 고르는 법</h3>
     <div class="rules">${S.settings.rules.map(ruleSel).join('')}</div>
     <p class="sheet-sub">바꾼 규칙은 내일 아침부터 적용돼요. 최근 7일 안에 본 조각은 다시 꺼내지 않습니다.</p>
+    ${isApp ? `<h3 class="set-h">아침 알림</h3>
+    <label class="rule">알림 시각
+      <select id="notify-time">
+        <option value="">받지 않음</option>
+        ${['06:30', '07:00', '07:30', '08:00', '08:30', '09:00', '12:00', '21:00', '22:00'].map((t) => `<option value="${t}" ${S.settings.notify && S.settings.reviewTime === t ? 'selected' : ''}>${t}</option>`).join('')}
+      </select></label>` : ''}
     <h3 class="set-h">내 조각 꺼내 가기</h3>
     <div class="set-row"><button class="btn" id="ex-md">글(Markdown)</button><button class="btn" id="ex-json">백업 파일(JSON)</button></div>
     <label class="btn btn-file">백업 파일 가져오기<input type="file" id="im-json" accept="application/json,.json" hidden></label>
@@ -597,6 +621,14 @@ function showSettings() {
     await saveSettings();
     toast('내일부터 적용돼요');
   }));
+  root.querySelector('#notify-time')?.addEventListener('change', async (e) => {
+    const t = e.target.value;
+    if (t) S.settings.reviewTime = t;
+    const ok = await scheduleReview(t || null);
+    S.settings.notify = t ? ok : false;
+    await saveSettings();
+    toast(!t ? '아침 알림을 껐어요' : ok ? `매일 ${t}에 알려 드릴게요` : '알림 권한이 필요해요 (휴대폰 설정 → 앱 → 조각보 → 알림)');
+  });
   root.querySelector('#ex-md').onclick = exportMd;
   root.querySelector('#ex-json').onclick = exportJson;
   root.querySelector('#im-json').onchange = (e) => e.target.files[0] && importJson(e.target.files[0]);
@@ -642,6 +674,18 @@ async function init() {
   for (const m of S.memos.filter((x) => x.deletedAt && x.deletedAt < cutoff)) await db.del('memos', m.id);
   S.memos = S.memos.filter((x) => !(x.deletedAt && x.deletedAt < cutoff));
   await ensureTodayReview();
+  initNative({
+    onBack: () => {
+      if (closeSheet) { closeSheet(); return true; }
+      if (S.editId || S.quoteId) { cancelCompose(); return true; }
+      if (!$('#searchbar').hidden) { $('#q-close').click(); return true; }
+      if (currentTab() !== 'list') { location.hash = '#/'; return true; }
+      if (filterActive()) { S.filter = { include: [], exclude: [], q: '', day: null }; render(); return true; }
+      return false;
+    },
+    onOpenHash: (h) => { location.hash = h; },
+  });
+  if (S.settings.notify) scheduleReview(S.settings.reviewTime);
   render();
   track('visit');
   db.askPersist();

@@ -1,7 +1,7 @@
 // 오늘의 조각 3장 — 하루에 한 번 정해지고, 그날은 바뀌지 않는다.
 // 규칙(최대 3개): random(무작위) / ago(1년 전·한 달 전 오늘) / tag(특정 태그에서)
 // 최근 7일 안에 이미 보여 준 조각은 다시 꺼내지 않는다.
-import { dayKey } from './memo.js?v=202610041028';
+import { dayKey } from './memo.js?v=202610041032';
 
 export const DEFAULT_RULES = [{ type: 'random' }, { type: 'ago' }, { type: 'random' }];
 export const MIN_POOL = 5; // 이만큼 쌓여야 회고가 의미 있다
