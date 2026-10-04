@@ -1,0 +1,11 @@
+{
+  "name": "조각보",
+  "short_name": "조각보",
+  "description": "하루 한 조각, 매일 아침 세 장",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#F3EFE6",
+  "theme_color": "#F3EFE6",
+  "lang": "ko",
+  "icons": [{ "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
