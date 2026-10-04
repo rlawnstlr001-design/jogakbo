@@ -1,6 +1,6 @@
 // 조각보 달력 — 하루가 천 조각 하나. 그날 쓴 태그 색으로 물들고, 쓴 만큼 진해진다.
 // 두 가지 태그가 섞인 날은 대각선으로 두 천을 이어 붙인다.
-import { dayKey, topTag, tagColor, PLAIN } from './memo.js?v=202610041032';
+import { dayKey, topTag, tagColor, PLAIN } from './memo.js?v=202610041102';
 
 export const BASE = '#EAE3D4'; // 비어 있는 날 = 무명
 

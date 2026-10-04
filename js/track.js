@@ -12,8 +12,12 @@ function deviceId() {
 }
 
 const sent = new Set();
+// 로컬 미리보기(개발 중)는 지표에 섞이지 않게 보내지 않는다
+// 앱(Capacitor) 안도 주소가 localhost라서 앱이 아닐 때만 막는다
+const LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname) && !window.Capacitor?.isNativePlatform?.();
+
 export function track(name) {
-  if (!CFG.supabaseUrl || !CFG.supabaseKey) return;
+  if (!CFG.supabaseUrl || !CFG.supabaseKey || LOCAL) return;
   const k = `${name}:${new Date().toDateString()}`;
   if (sent.has(k)) return; // 같은 실행 중 중복 전송 방지
   sent.add(k);
